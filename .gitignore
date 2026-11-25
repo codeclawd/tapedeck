@@ -1,0 +1,13 @@
+.venv/
+.scratch-*/
+__pycache__/
+*.pyc
+.pytest_cache/
+docs/research/probe/*.html
+.remember/
+.omc/
+.scratch/
+*.db
+*.bak*
+.DS_Store
+.planning/

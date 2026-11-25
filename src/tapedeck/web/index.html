@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
+  <title>tapedeck</title>
+  <link rel="stylesheet" href="icons.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="login" class="login" hidden>
+    <form id="login-form" class="login-card">
+      <h1><i class="ph ph-vinyl-record"></i> tapedeck</h1>
+      <label for="username">Username</label>
+      <input id="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <p class="hint">Forgot it? On the server: <code>tapedeck account password owner</code></p>
+      <p id="login-error" class="error" hidden></p>
+      <button type="submit" class="btn primary">Sign in</button>
+    </form>
+  </div>
+
+  <div id="app" class="shell" hidden>
+    <nav class="side">
+      <a class="brand" href="#/discover"><i class="ph ph-vinyl-record"></i> tapedeck</a>
+      <a href="#/discover" data-nav="discover"><i class="ph ph-sparkle"></i> Discover</a>
+      <a href="#/search" data-nav="search"><i class="ph ph-magnifying-glass"></i> Search</a>
+      <a href="#/library" data-nav="library"><i class="ph ph-music-notes"></i> Library</a>
+      <a href="#/activity" data-nav="activity"><i class="ph ph-list-checks"></i> Activity <span id="busy" class="count" hidden></span></a>
+      <a href="#/privacy" data-nav="privacy"><i class="ph ph-shield-check"></i> Privacy</a>
+      <a href="#/system" data-nav="system"><i class="ph ph-gear"></i> System</a>
+    </nav>
+    <main id="view" class="view" tabindex="-1"></main>
+    <footer class="player" id="player">
+      <div class="np">
+        <img id="np-cover" alt="" hidden>
+        <div class="np-text"><div id="np-title" class="np-title">Nothing playing</div><div id="np-artist" class="muted"></div></div>
+        <button id="np-like" class="icon" title="Like" disabled><i class="ph ph-heart"></i></button>
+      </div>
+      <div class="controls">
+        <div class="buttons">
+          <button id="prev" class="icon" title="Previous"><i class="ph ph-skip-back"></i></button>
+          <button id="toggle" class="icon big" title="Play"><i class="ph ph-play"></i></button>
+          <button id="next" class="icon" title="Next"><i class="ph ph-skip-forward"></i></button>
+        </div>
+        <div class="seek"><span id="t-cur" class="mono">0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek"><span id="t-dur" class="mono">0:00</span></div>
+      </div>
+      <div class="vol"><i class="ph ph-speaker-high"></i><input id="volume" type="range" min="0" max="100" value="90" aria-label="Volume"></div>
+    </footer>
+  </div>
+  <div id="menu" class="menu" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+  <audio id="audio" preload="auto"></audio>
+  <script src="app.js"></script>
+</body>
+</html>

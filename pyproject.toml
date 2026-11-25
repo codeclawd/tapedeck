@@ -1,0 +1,60 @@
+[project]
+name = "tapedeck"
+version = "0.2.0"
+description = "Self-hosted music backend: search YouTube Music and Spotify, stream, download into Navidrome. No Google or Spotify account. Web UI, HTTP API and MCP server."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+keywords = [
+  "youtube-music", "spotify", "navidrome", "self-hosted", "music", "music-downloader",
+  "yt-dlp", "ytmusicapi", "subsonic", "homelab", "mcp", "mcp-server", "lidarr",
+  "music-recommendation", "lyrics",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Environment :: Web Environment",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Multimedia :: Sound/Audio",
+  "Topic :: Multimedia :: Sound/Audio :: Players",
+]
+dependencies = [
+  # Pinned to the merged fix for header-less promo carousels on artist pages (sigma67/ytmusicapi#1031, PR #1032).
+  # 1.12.3 raises KeyError 'header' in get_artist. Go back to "ytmusicapi>=1.12.4" once that is released.
+  "ytmusicapi @ git+https://github.com/sigma67/ytmusicapi@86fcd17ee3ff0d19bc807558d4e1a637df395143",
+  "yt-dlp>=2026.10.26",
+  "mutagen>=1.47",
+  "requests>=2.32",
+  "mcp>=2.3",
+  "starlette>=0.47",
+  "uvicorn>=0.35",
+]
+
+[project.urls]
+Homepage = "https://github.com/codeclawd/tapedeck"
+Documentation = "https://github.com/codeclawd/tapedeck/blob/main/docs/api.md"
+Issues = "https://github.com/codeclawd/tapedeck/issues"
+
+[project.scripts]
+tapedeck = "tapedeck.cli:main"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8",
+    "ruff>=0.17.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true   # the ytmusicapi git pin above
