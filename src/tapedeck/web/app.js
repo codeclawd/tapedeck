@@ -114,6 +114,7 @@ function topUp(thenPlay = false) {
     fresh.forEach((t) => P.auto.add(t.video_id));
     const atEnd = P.i + 1 >= P.queue.length;
     P.queue.push(...fresh);
+    renderQueue();  // an open queue panel must show the tracks Autoplay just added
     if (thenPlay && atEnd && fresh.length) load(P.i + 1);
     else if (thenPlay && !fresh.length) audio.pause();
   }).catch(() => { if (thenPlay) audio.pause(); }).finally(() => { P.fetching = false; });
@@ -125,6 +126,11 @@ function enqueue(t, next = false) {
     if (current().video_id === t.video_id) return toast(`Already playing: ${t.title}`);
     const from = P.queue.findIndex((x, k) => k !== P.i && x.video_id === t.video_id);
     if (from >= 0) { playNext(from); return; }  // already queued: move it, never duplicate it
+  }
+  if (!next) {
+    // Add to queue never makes a second copy: if it is already queued (or playing), leave it where it is.
+    if (current().video_id === t.video_id) return toast(`Already playing: ${t.title}`);
+    if (P.queue.some((x, k) => k !== P.i && x.video_id === t.video_id)) return toast(`Already in the queue: ${t.title}`);
   }
   P.queue.splice(next ? P.i + 1 : P.queue.length, 0, t);
   renderQueue();
@@ -222,6 +228,7 @@ audio.addEventListener("playing", () => {
 audio.addEventListener("pause", () => setPlayIcon(false));
 audio.addEventListener("timeupdate", () => {
   const d = audio.duration || 0, c = audio.currentTime || 0;
+  syncPosition();
   for (const id of ["", "fs-"]) {
     $(`#${id}t-cur`).textContent = fmt(c) || "0:00";
     $(`#${id}t-dur`).textContent = fmt(d) || "0:00";
@@ -254,9 +261,25 @@ audio.addEventListener("volumechange", () => { for (const id of ["#volume", "#fs
 audio.volume = 0.9;
 $("#np-like").addEventListener("click", () => toggleLike(current()));
 $("#fs-like").addEventListener("click", () => toggleLike(current()));
+// iOS ignores audio.volume, so the full-screen volume slider would do nothing there. CSS hides it under html.ios.
+if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) document.documentElement.classList.add("ios");
+// Lock screen position bar. setPositionState throws on a non-finite duration, so guard it.
+function syncPosition() {
+  if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
+  const d = audio.duration;
+  if (!Number.isFinite(d) || d <= 0) return;
+  try { navigator.mediaSession.setPositionState({ duration: d, position: Math.min(Math.max(audio.currentTime || 0, 0), d), playbackRate: audio.playbackRate || 1 }); } catch (e) { /* ignore */ }
+}
+audio.addEventListener("durationchange", syncPosition);
+audio.addEventListener("ratechange", syncPosition);
+audio.addEventListener("seeked", syncPosition);
 if ("mediaSession" in navigator) {
-  navigator.mediaSession.setActionHandler("nexttrack", next);
-  navigator.mediaSession.setActionHandler("previoustrack", prev);
+  const ms = navigator.mediaSession, set = (n, f) => { try { ms.setActionHandler(n, f); } catch (e) { /* unsupported action */ } };
+  set("nexttrack", next);
+  set("previoustrack", prev);
+  set("play", () => { if (audio.paused) togglePlay(); });
+  set("pause", () => { if (!audio.paused) togglePlay(); });
+  set("seekto", (d) => { if (d && Number.isFinite(d.seekTime)) { audio.currentTime = d.seekTime; syncPosition(); } });
 }
 document.addEventListener("keydown", (e) => {
   if (e.code === "Space" && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $("#toggle").click(); }

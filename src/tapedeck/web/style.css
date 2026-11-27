@@ -166,7 +166,7 @@ input[type=range] { accent-color: var(--accent); height: 4px; }
 .q-row:hover { background: var(--panel); }
 .q-row.now .ttl { color: var(--accent); }
 .q-row.dragging { background: var(--panel-2); z-index: 2; transition: none; box-shadow: 0 8px 20px rgb(0 0 0 / .5); }
-.q-grip { cursor: grab; touch-action: none; padding: 8px 4px; }
+.q-grip { cursor: grab; touch-action: none; padding: 0; width: 44px; height: 44px; flex: none; }
 .q-row.dragging .q-grip { cursor: grabbing; }
 .q-thumb { width: 40px; height: 40px; flex: none; border-radius: 4px; object-fit: cover; background: var(--panel-2); display: block; }
 .q-text { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 2px 4px; cursor: pointer; border-radius: var(--r); }
@@ -196,6 +196,8 @@ input[type=range] { accent-color: var(--accent); height: 4px; }
 .fs .icon:hover { background: rgb(255 255 255 / .12); }
 .fs .icon.big:hover { background: #fff; }
 
+html.ios .fs-vol { display: none; }  /* iOS ignores audio.volume */
+
 @media (max-width: 760px) {
   .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr var(--player); }
   .side { grid-row: 1; flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px; }
@@ -205,6 +207,7 @@ input[type=range] { accent-color: var(--accent); height: 4px; }
   .player { grid-row: 3; grid-template-columns: 1fr auto; }
   .player .vol, .player .seek { display: none; }
   .fs-vol { display: flex; }
+  html.ios .fs-vol { display: none; }
   .fs-title { font-size: 22px; }
   .queue { top: 25dvh; bottom: 0; width: 100%; border-left: 0; border-top: 1px solid var(--line); border-radius: var(--r-art) var(--r-art) 0 0; }
   .hero { grid-template-columns: 1fr; }
