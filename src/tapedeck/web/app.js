@@ -100,6 +100,7 @@ function playList(tracks, i = 0) {
   leaveCurrent();
   P.queue = songs;
   P.auto = new Set();
+  P.playWhenFetched = false;
   load(start);
 }
 // Autoplay: with two songs or fewer left, ask tapedeck what follows the last one (Up Next re-ranked by your taste).
@@ -111,7 +112,14 @@ function topUp(thenPlay = false) {
   P.fetching = true;
   P.playWhenFetched = thenPlay;
   const exclude = P.queue.map((x) => x.video_id).slice(-150).join(",");
+  const q = P.queue;
   api(`/api/autoplay/${last.video_id}?limit=10&exclude=${encodeURIComponent(exclude)}`).then((more) => {
+    if (q !== P.queue || P.i < 0) {
+      // A new list started (or the queue was emptied) while this was in flight: these picks belong to the old one.
+      P.playWhenFetched = P.fetching = false;
+      if (P.i >= 0 && P.queue.length - 1 - P.i <= 2) topUp();
+      return;
+    }
     const have = new Set(P.queue.map((x) => x.video_id));
     const fresh = (more || []).filter((t) => t.video_id && !have.has(t.video_id));
     fresh.forEach((t) => P.auto.add(t.video_id));
