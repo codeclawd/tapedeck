@@ -49,6 +49,8 @@ function toast(msg, isError = false) {
 // ---------- auth ----------
 function signOut() {
   if (TOKEN) fetch("/api/logout", { method: "POST", headers: { Authorization: `Bearer ${TOKEN}` } }).catch(() => {});
+  closeFs();
+  closeQueue();
   localStorage.removeItem("tapedeck.token");
   TOKEN = "";
   $("#app").hidden = true;
@@ -76,7 +78,7 @@ $("#login-form").addEventListener("submit", async (e) => {
 
 // ---------- player ----------
 const audio = $("#audio");
-const P = { queue: [], i: -1, sentPlay: false, sentFinish: false, auto: new Set(), fetching: false };
+const P = { queue: [], i: -1, sentPlay: false, sentFinish: false, auto: new Set(), fetching: false, playWhenFetched: false };
 const current = () => P.queue[P.i];
 
 function event(track, kind) {
@@ -98,55 +100,133 @@ function playList(tracks, i = 0) {
   leaveCurrent();
   P.queue = songs;
   P.auto = new Set();
+  P.playWhenFetched = false;
   load(start);
 }
 // Autoplay: with two songs or fewer left, ask tapedeck what follows the last one (Up Next re-ranked by your taste).
 function topUp(thenPlay = false) {
   const last = P.queue[P.queue.length - 1];
-  if (P.fetching || !last || !last.video_id) { if (thenPlay && !P.fetching) audio.pause(); return; }
+  // A request already in flight plays its first new track when it lands, so Next at the end never goes nowhere.
+  if (P.fetching) { if (thenPlay) P.playWhenFetched = true; return; }
+  if (!last || !last.video_id) { if (thenPlay) audio.pause(); return; }
   P.fetching = true;
+  P.playWhenFetched = thenPlay;
   const exclude = P.queue.map((x) => x.video_id).slice(-150).join(",");
+  const q = P.queue;
   api(`/api/autoplay/${last.video_id}?limit=10&exclude=${encodeURIComponent(exclude)}`).then((more) => {
+    if (q !== P.queue || P.i < 0) {
+      // A new list started (or the queue was emptied) while this was in flight: these picks belong to the old one.
+      P.playWhenFetched = P.fetching = false;
+      if (P.i >= 0 && P.queue.length - 1 - P.i <= 2) topUp();
+      return;
+    }
     const have = new Set(P.queue.map((x) => x.video_id));
     const fresh = (more || []).filter((t) => t.video_id && !have.has(t.video_id));
     fresh.forEach((t) => P.auto.add(t.video_id));
     const atEnd = P.i + 1 >= P.queue.length;
     P.queue.push(...fresh);
-    if (thenPlay && atEnd && fresh.length) load(P.i + 1);
-    else if (thenPlay && !fresh.length) audio.pause();
-  }).catch(() => { if (thenPlay) audio.pause(); }).finally(() => { P.fetching = false; });
+    renderQueue();  // an open queue panel must show the tracks Autoplay just added
+    const play = P.playWhenFetched;
+    P.playWhenFetched = false;
+    P.fetching = false;
+    if (play && atEnd && fresh.length) load(P.i + 1);
+    else if (play && !fresh.length) audio.pause();
+  }).catch(() => { if (P.playWhenFetched) audio.pause(); P.playWhenFetched = false; P.fetching = false; });
 }
 function enqueue(t, next = false) {
   if (!t.video_id) return;
   if (P.i < 0) return playList([t]);
+  if (next) {
+    if (current().video_id === t.video_id) return toast(`Already playing: ${t.title}`);
+    const from = P.queue.findIndex((x, k) => k !== P.i && x.video_id === t.video_id);
+    if (from >= 0) { playNext(from); return; }  // already queued: move it, never duplicate it
+  }
+  if (!next) {
+    // Add to queue never makes a second copy: if it is already queued (or playing), leave it where it is.
+    if (current().video_id === t.video_id) return toast(`Already playing: ${t.title}`);
+    if (P.queue.some((x, k) => k !== P.i && x.video_id === t.video_id)) return toast(`Already in the queue: ${t.title}`);
+  }
   P.queue.splice(next ? P.i + 1 : P.queue.length, 0, t);
+  renderQueue();
   toast(next ? `Playing next: ${t.title}` : `Added to queue: ${t.title}`);
 }
-function load(i) {
+// Queue editing. `to` is the final index after the move; P.i follows the track that is playing.
+function moveInQueue(from, to) {
+  if (from === to || from < 0 || to < 0 || from >= P.queue.length || to >= P.queue.length) return;
+  const [t] = P.queue.splice(from, 1);
+  P.queue.splice(to, 0, t);
+  if (P.i === from) P.i = to;
+  else if (from < P.i && to >= P.i) P.i--;
+  else if (from > P.i && to <= P.i) P.i++;
+  renderQueue();
+}
+function playNext(from) {
+  if (from === P.i || from < 0 || from >= P.queue.length) return;
+  const t = P.queue[from];
+  moveInQueue(from, from < P.i ? P.i : P.i + 1);
+  toast(`Playing next: ${t.title}`);
+}
+function removeFromQueue(k) {
+  if (k < 0 || k >= P.queue.length) return;
+  if (k !== P.i) { P.queue.splice(k, 1); if (k < P.i) P.i--; renderQueue(); return; }
+  const playing = !audio.paused;
+  leaveCurrent();
+  P.queue.splice(k, 1);
+  if (k < P.queue.length) return load(k, playing);  // the next track takes this slot; keep playing if it was playing
+  if (!P.queue.length) {
+    P.i = -1;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    renderNow();
+    return;
+  }
+  load(k - 1, false);  // nothing after it: cue the last track, and let Autoplay continue if we were playing
+  if (playing) topUp(true);
+}
+function load(i, autoplay = true) {
   if (i < 0 || i >= P.queue.length) return;
   P.i = i;
   P.sentPlay = P.sentFinish = false;
   const t = current();
   audio.src = streamUrl(t.video_id);
-  const upNext = P.queue.slice(i + 1, i + 3).map((x) => x.video_id).filter(Boolean);
-  if (upNext.length) api("/api/prefetch", { method: "POST", body: { video_ids: upNext } }).catch(() => {});
-  audio.play().catch((err) => toast(`Can't play: ${err.message}`, true));
-  $("#np-title").textContent = t.title;
-  $("#np-artist").textContent = artistsOf(t);
+  if (autoplay) {
+    const upNext = P.queue.slice(i + 1, i + 3).map((x) => x.video_id).filter(Boolean);
+    if (upNext.length) api("/api/prefetch", { method: "POST", body: { video_ids: upNext } }).catch(() => {});
+    audio.play().catch((err) => toast(`Can't play: ${err.message}`, true));
+  } else setPlayIcon(false);
+  renderNow();
+  if (autoplay && P.queue.length - 1 - P.i <= 2) topUp();
+}
+// Footer + full-screen player show whatever is current (or nothing).
+function renderNow() {
+  const t = current();
+  $("#np-title").textContent = t ? t.title : "Nothing playing";
+  $("#np-artist").textContent = t ? artistsOf(t) : "";
   const img = $("#np-cover");
-  img.hidden = !t.cover;
-  if (t.cover) img.src = cover(t, 120);
-  $("#np-like").disabled = false;
-  $("#np-like").classList.toggle("on", !!t.liked);
-  document.title = `${t.title} · tapedeck`;
+  img.hidden = !(t && t.cover);
+  if (t && t.cover) img.src = cover(t, 120);
+  $("#np-like").disabled = !t;
+  $("#np-like").classList.toggle("on", !!(t && t.liked));
+  $("#fs-like").disabled = !t;
+  $("#fs-like").classList.toggle("on", !!(t && t.liked));
+  $("#fs-title").textContent = t ? t.title : "Nothing playing";
+  $("#fs-artist").textContent = t ? artistsOf(t) : "";
+  const art = $("#fs-art");
+  art.hidden = !(t && t.cover);  // no cover: the plain panel behind it shows, never a broken image
+  if (t && t.cover) art.src = cover(t, 800);
+  document.title = t ? `${t.title} · tapedeck` : "tapedeck";
   if ("mediaSession" in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
+    navigator.mediaSession.metadata = t ? new MediaMetadata({
       title: t.title, artist: artistsOf(t), album: t.album || "",
       artwork: t.cover ? [{ src: cover(t, 512), sizes: "512x512", type: "image/jpeg" }] : [],
-    });
+    }) : null;
   }
   markPlaying();
-  if (P.queue.length - 1 - P.i <= 2) topUp();
+  renderQueue();
+}
+function setPlayIcon(playing) {
+  for (const b of [$("#toggle"), $("#fs-toggle")]) { b.replaceChildren(icon(playing ? "pause" : "play")); b.title = playing ? "Pause" : "Play"; }
 }
 function next() { leaveCurrent(); if (P.i + 1 < P.queue.length) load(P.i + 1); else topUp(true); }
 function prev() { if (audio.currentTime > 4) { audio.currentTime = 0; return; } leaveCurrent(); load(Math.max(0, P.i - 1)); }
@@ -156,15 +236,18 @@ function markPlaying() {
 }
 
 audio.addEventListener("playing", () => {
-  $("#toggle").replaceChildren(icon("pause"));
+  setPlayIcon(true);
   if (!P.sentPlay) { P.sentPlay = true; event(current(), "play"); }
 });
-audio.addEventListener("pause", () => $("#toggle").replaceChildren(icon("play")));
+audio.addEventListener("pause", () => setPlayIcon(false));
 audio.addEventListener("timeupdate", () => {
   const d = audio.duration || 0, c = audio.currentTime || 0;
-  $("#t-cur").textContent = fmt(c) || "0:00";
-  $("#t-dur").textContent = fmt(d) || "0:00";
-  if (!seeking) $("#seek").value = d ? Math.round((c / d) * 1000) : 0;
+  syncPosition();
+  for (const id of ["", "fs-"]) {
+    $(`#${id}t-cur`).textContent = fmt(c) || "0:00";
+    $(`#${id}t-dur`).textContent = fmt(d) || "0:00";
+    if (!seeking) $(`#${id}seek`).value = d ? Math.round((c / d) * 1000) : 0;
+  }
   if (d && c / d >= 0.9 && !P.sentFinish) { P.sentFinish = true; event(current(), "finish"); }
 });
 audio.addEventListener("ended", () => {
@@ -175,27 +258,147 @@ audio.addEventListener("error", () => {
   if (current()) toast(`Stream failed for ${current().title}. The server couldn't fetch it from YouTube.`, true);
 });
 let seeking = false;
-$("#seek").addEventListener("input", () => (seeking = true));
-$("#seek").addEventListener("change", (e) => { if (audio.duration) audio.currentTime = (e.target.value / 1000) * audio.duration; seeking = false; });
-$("#toggle").addEventListener("click", () => (audio.paused ? (P.i >= 0 && audio.play()) : audio.pause()));
+for (const id of ["#seek", "#fs-seek"]) {
+  $(id).addEventListener("input", () => (seeking = true));
+  $(id).addEventListener("change", (e) => { if (audio.duration) audio.currentTime = (e.target.value / 1000) * audio.duration; seeking = false; });
+}
+const togglePlay = () => (audio.paused ? (P.i >= 0 && audio.play()) : audio.pause());
+$("#toggle").addEventListener("click", togglePlay);
+$("#fs-toggle").addEventListener("click", togglePlay);
 $("#next").addEventListener("click", next);
+$("#fs-next").addEventListener("click", next);
 $("#prev").addEventListener("click", prev);
-$("#volume").addEventListener("input", (e) => (audio.volume = e.target.value / 100));
+$("#fs-prev").addEventListener("click", prev);
+// One volume: both sliders drive audio.volume, and both follow it.
+for (const id of ["#volume", "#fs-volume"]) $(id).addEventListener("input", (e) => (audio.volume = e.target.value / 100));
+audio.addEventListener("volumechange", () => { for (const id of ["#volume", "#fs-volume"]) $(id).value = Math.round(audio.volume * 100); });
 audio.volume = 0.9;
 $("#np-like").addEventListener("click", () => toggleLike(current()));
+$("#fs-like").addEventListener("click", () => toggleLike(current()));
+// iOS ignores audio.volume, so the full-screen volume slider would do nothing there. CSS hides it under html.ios.
+if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) document.documentElement.classList.add("ios");
+// Lock screen position bar. setPositionState throws on a non-finite duration, so guard it.
+function syncPosition() {
+  if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
+  const d = audio.duration;
+  if (!Number.isFinite(d) || d <= 0) return;
+  try { navigator.mediaSession.setPositionState({ duration: d, position: Math.min(Math.max(audio.currentTime || 0, 0), d), playbackRate: audio.playbackRate || 1 }); } catch (e) { /* ignore */ }
+}
+audio.addEventListener("durationchange", syncPosition);
+audio.addEventListener("ratechange", syncPosition);
+audio.addEventListener("seeked", syncPosition);
 if ("mediaSession" in navigator) {
-  navigator.mediaSession.setActionHandler("nexttrack", next);
-  navigator.mediaSession.setActionHandler("previoustrack", prev);
+  const ms = navigator.mediaSession, set = (n, f) => { try { ms.setActionHandler(n, f); } catch (e) { /* unsupported action */ } };
+  set("nexttrack", next);
+  set("previoustrack", prev);
+  set("play", () => { if (audio.paused) togglePlay(); });
+  set("pause", () => { if (!audio.paused) togglePlay(); });
+  set("seekto", (d) => { if (d && Number.isFinite(d.seekTime)) { audio.currentTime = d.seekTime; syncPosition(); } });
 }
 document.addEventListener("keydown", (e) => {
   if (e.code === "Space" && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $("#toggle").click(); }
+});
+
+// ---------- queue panel ----------
+const queuePanel = $("#queue"), queueList = $("#queue-list");
+function openQueue() { queuePanel.hidden = false; renderQueue(); $("#queue-close").focus(); }
+function closeQueue() { if (queuePanel.hidden) return; queuePanel.hidden = true; }
+function toggleQueue() { if (queuePanel.hidden) openQueue(); else closeQueue(); }
+function renderQueue() {
+  if (queuePanel.hidden) return;
+  $("#queue-count").textContent = P.queue.length ? `${P.queue.length - P.i - 1 < 0 ? 0 : P.queue.length - P.i - 1} up next` : "";
+  if (!P.queue.length) { queueList.replaceChildren(h("li", { class: "q-empty muted", text: "Nothing queued. Play a song, or use Play next or Add to queue from a song's menu." })); return; }
+  queueList.replaceChildren(...P.queue.map((t, k) => queueRow(t, k)));
+}
+function queueRow(t, k) {
+  const grip = h("button", { class: "icon q-grip", title: "Drag to reorder (or Up and Down arrow keys)", "aria-label": `Reorder ${t.title}` }, icon("dots-six-vertical"));
+  grip.addEventListener("pointerdown", (e) => dragRow(e, grip, k));
+  grip.addEventListener("keydown", (e) => {
+    const to = e.key === "ArrowUp" ? k - 1 : e.key === "ArrowDown" ? k + 1 : null;
+    if (to == null) return;
+    e.preventDefault();
+    moveInQueue(k, to);
+    const g = queueList.children[Math.max(0, Math.min(to, P.queue.length - 1))];
+    if (g) g.querySelector(".q-grip").focus();
+  });
+  const thumb = t.cover ? h("img", { class: "q-thumb", src: cover(t, 80), alt: "" }) : h("div", { class: "q-thumb" });
+  if (t.cover) thumb.addEventListener("error", () => thumb.replaceWith(h("div", { class: "q-thumb" })));
+  return h("li", { class: `q-row${k === P.i ? " now" : ""}`, "data-k": k },
+    grip, thumb,
+    h("button", { class: "q-text", title: "Play this track", onclick: () => { if (k !== P.i) { leaveCurrent(); load(k); } else togglePlay(); } },
+      h("div", { class: "ttl", text: t.title }), h("div", { class: "sub", text: artistsOf(t) })),
+    k === P.i ? h("span", { class: "pill done", text: "Now" })
+      : h("button", { class: "icon", title: "Play next", "aria-label": `Play ${t.title} next`, disabled: k === P.i + 1, onclick: () => playNext(k) }, icon("skip-forward")),
+    h("button", { class: "icon", title: "Remove from queue", "aria-label": `Remove ${t.title}`, onclick: () => removeFromQueue(k) }, icon("x")));
+}
+// Drag with pointer events (works for mouse and touch); the row follows the pointer, the rest slide aside.
+function dragRow(e, grip, k) {
+  if (e.button) return;
+  e.preventDefault();
+  const rows = [...queueList.children], rects = rows.map((r) => r.getBoundingClientRect());
+  const row = rows[k], startY = e.clientY, ht = rects[k].height;
+  let to = k;
+  grip.setPointerCapture(e.pointerId);
+  row.classList.add("dragging");
+  const move = (ev) => {
+    const dy = ev.clientY - startY, centre = rects[k].top + ht / 2 + dy;
+    row.style.transform = `translateY(${dy}px)`;
+    to = rects.filter((r, j) => j !== k && r.top + r.height / 2 < centre).length;
+    rows.forEach((r, j) => {
+      if (j === k) return;
+      r.style.transform = k < to && j > k && j <= to ? `translateY(${-ht}px)` : k > to && j >= to && j < k ? `translateY(${ht}px)` : "";
+    });
+  };
+  const done = (ev) => {
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", done);
+    grip.removeEventListener("pointercancel", done);
+    rows.forEach((r) => (r.style.transform = ""));
+    row.classList.remove("dragging");
+    if (ev.type === "pointerup") moveInQueue(k, to);
+  };
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", done);
+  grip.addEventListener("pointercancel", done);
+}
+$("#queue-btn").addEventListener("click", toggleQueue);
+$("#fs-queue").addEventListener("click", toggleQueue);
+$("#queue-close").addEventListener("click", () => { closeQueue(); (fsOpen() ? $("#fs-queue") : $("#queue-btn")).focus(); });
+
+// ---------- full-screen player ----------
+const fs = $("#fs");
+let fsReturn = null;
+const fsOpen = () => !fs.hidden;
+function openFs() {
+  if (P.i < 0 || fsOpen()) return;
+  closeMenu();
+  fsReturn = document.activeElement;
+  fs.hidden = false;
+  $("#app").inert = true;  // keep focus and clicks inside the player until it closes
+  $("#fs-close").focus();
+}
+function closeFs() {
+  if (!fsOpen()) return;
+  closeQueue();
+  fs.hidden = true;
+  $("#app").inert = false;
+  if (fsReturn && fsReturn.isConnected) fsReturn.focus();
+  fsReturn = null;
+}
+$("#expand").addEventListener("click", openFs);
+$("#np-open").addEventListener("click", openFs);
+$("#fs-close").addEventListener("click", closeFs);
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (fsOpen()) closeFs();  // the full-screen player owns Escape while it is open
+  else closeQueue();
 });
 
 function toggleLike(t) {
   if (!t) return;
   t.liked = !t.liked;
   event(t, t.liked ? "like" : "unlike");
-  if (t === current()) $("#np-like").classList.toggle("on", t.liked);
+  if (t === current()) { $("#np-like").classList.toggle("on", t.liked); $("#fs-like").classList.toggle("on", t.liked); }
   toast(t.liked ? `Liked ${t.title}` : `Removed like from ${t.title}`);
 }
 
