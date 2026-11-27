@@ -78,7 +78,7 @@ $("#login-form").addEventListener("submit", async (e) => {
 
 // ---------- player ----------
 const audio = $("#audio");
-const P = { queue: [], i: -1, sentPlay: false, sentFinish: false, auto: new Set(), fetching: false };
+const P = { queue: [], i: -1, sentPlay: false, sentFinish: false, auto: new Set(), fetching: false, playWhenFetched: false };
 const current = () => P.queue[P.i];
 
 function event(track, kind) {
@@ -105,8 +105,11 @@ function playList(tracks, i = 0) {
 // Autoplay: with two songs or fewer left, ask tapedeck what follows the last one (Up Next re-ranked by your taste).
 function topUp(thenPlay = false) {
   const last = P.queue[P.queue.length - 1];
-  if (P.fetching || !last || !last.video_id) { if (thenPlay && !P.fetching) audio.pause(); return; }
+  // A request already in flight plays its first new track when it lands, so Next at the end never goes nowhere.
+  if (P.fetching) { if (thenPlay) P.playWhenFetched = true; return; }
+  if (!last || !last.video_id) { if (thenPlay) audio.pause(); return; }
   P.fetching = true;
+  P.playWhenFetched = thenPlay;
   const exclude = P.queue.map((x) => x.video_id).slice(-150).join(",");
   api(`/api/autoplay/${last.video_id}?limit=10&exclude=${encodeURIComponent(exclude)}`).then((more) => {
     const have = new Set(P.queue.map((x) => x.video_id));
@@ -115,9 +118,12 @@ function topUp(thenPlay = false) {
     const atEnd = P.i + 1 >= P.queue.length;
     P.queue.push(...fresh);
     renderQueue();  // an open queue panel must show the tracks Autoplay just added
-    if (thenPlay && atEnd && fresh.length) load(P.i + 1);
-    else if (thenPlay && !fresh.length) audio.pause();
-  }).catch(() => { if (thenPlay) audio.pause(); }).finally(() => { P.fetching = false; });
+    const play = P.playWhenFetched;
+    P.playWhenFetched = false;
+    P.fetching = false;
+    if (play && atEnd && fresh.length) load(P.i + 1);
+    else if (play && !fresh.length) audio.pause();
+  }).catch(() => { if (P.playWhenFetched) audio.pause(); P.playWhenFetched = false; P.fetching = false; });
 }
 function enqueue(t, next = false) {
   if (!t.video_id) return;
