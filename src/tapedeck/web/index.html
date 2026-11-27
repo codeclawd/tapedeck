@@ -36,8 +36,8 @@
     <main id="view" class="view" tabindex="-1"></main>
     <footer class="player" id="player">
       <div class="np">
-        <img id="np-cover" alt="" hidden>
-        <div class="np-text"><div id="np-title" class="np-title">Nothing playing</div><div id="np-artist" class="muted"></div></div>
+        <div id="np-open" class="np-open" title="Open full screen player"><img id="np-cover" alt="" hidden>
+        <div class="np-text"><div id="np-title" class="np-title">Nothing playing</div><div id="np-artist" class="muted"></div></div></div>
         <button id="np-like" class="icon" title="Like" disabled><i class="ph ph-heart"></i></button>
       </div>
       <div class="controls">
@@ -48,9 +48,34 @@
         </div>
         <div class="seek"><span id="t-cur" class="mono">0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek"><span id="t-dur" class="mono">0:00</span></div>
       </div>
-      <div class="vol"><i class="ph ph-speaker-high"></i><input id="volume" type="range" min="0" max="100" value="90" aria-label="Volume"></div>
+      <div class="vol">
+        <button id="queue-btn" class="icon" title="Queue"><i class="ph ph-queue"></i></button>
+        <button id="expand" class="icon" title="Full screen player"><i class="ph ph-arrows-out-simple"></i></button>
+        <i class="ph ph-speaker-high"></i><input id="volume" type="range" min="0" max="100" value="90" aria-label="Volume">
+      </div>
     </footer>
   </div>
+  <section id="fs" class="fs" role="dialog" aria-modal="true" aria-label="Full screen player" hidden>
+    <img id="fs-art" class="fs-art" alt="" hidden>
+    <div class="fs-scrim"></div>
+    <button id="fs-close" class="icon fs-close" title="Close full screen player" aria-label="Close full screen player"><i class="ph ph-x"></i></button>
+    <div class="fs-body">
+      <div class="fs-meta"><div id="fs-title" class="fs-title">Nothing playing</div><div id="fs-artist" class="fs-artist"></div></div>
+      <div class="seek"><span id="fs-t-cur" class="mono">0:00</span><input id="fs-seek" type="range" min="0" max="1000" value="0" aria-label="Seek"><span id="fs-t-dur" class="mono">0:00</span></div>
+      <div class="buttons">
+        <button id="fs-like" class="icon" title="Like" disabled><i class="ph ph-heart"></i></button>
+        <button id="fs-prev" class="icon" title="Previous"><i class="ph ph-skip-back"></i></button>
+        <button id="fs-toggle" class="icon big" title="Play"><i class="ph ph-play"></i></button>
+        <button id="fs-next" class="icon" title="Next"><i class="ph ph-skip-forward"></i></button>
+        <button id="fs-queue" class="icon" title="Queue"><i class="ph ph-queue"></i></button>
+      </div>
+      <div class="vol fs-vol"><i class="ph ph-speaker-high"></i><input id="fs-volume" type="range" min="0" max="100" value="90" aria-label="Volume"></div>
+    </div>
+  </section>
+  <aside id="queue" class="queue" aria-label="Queue" hidden>
+    <div class="queue-head"><h2>Queue</h2><span id="queue-count" class="muted"></span><button id="queue-close" class="icon" title="Close queue" aria-label="Close queue"><i class="ph ph-x"></i></button></div>
+    <ol id="queue-list" class="queue-list"></ol>
+  </aside>
   <div id="menu" class="menu" hidden></div>
   <div id="toast" class="toast" hidden></div>
   <audio id="audio" preload="auto"></audio>
